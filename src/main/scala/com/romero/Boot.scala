@@ -6,41 +6,45 @@ import akka.http.scaladsl.Http
 import akka.http.scaladsl.marshallers.sprayjson.SprayJsonSupport
 import akka.http.scaladsl.model.StatusCodes
 import akka.http.scaladsl.server.Directives._
-import akka.pattern.ask
-import akka.pattern.pipe
+import akka.pattern.{ask, pipe}
 import akka.stream.ActorMaterializer
 import akka.util.Timeout
 import org.mongodb.scala.MongoClient
-import org.mongodb.scala.model.Updates._
+import org.mongodb.scala.bson._
 import org.mongodb.scala.model.Filters._
+import org.mongodb.scala.model.Updates._
 import spray.json.{DefaultJsonProtocol, RootJsonFormat}
 
-import scala.concurrent.duration._
-import scala.concurrent.Future
-import org.mongodb.scala.bson._
-
 import scala.concurrent.ExecutionContext.Implicits.global
+import scala.concurrent.Future
+import scala.concurrent.duration._
 import scala.util.{Failure, Success, Try}
 
 case class RegisterScreening(imdbId: String, screenId: String, availableSeats: Int) {
   require(availableSeats > 0, "availableSeats should be more than 0")
 }
 
+case class ReserveSeat(imdbId: String, screenId: String)
+case object ScreeningAlreadyRegistered
+case object NoSeatsAvailable
+case object ScreeningNotFound
+
 case class Screening(imdbId: String, screenId: String, movieTitle: String, availableSeats: Int, reservedSeats: Int) {
-  require(availableSeats > 0, "availableSeats should be more than 0")
-  require(reservedSeats <= availableSeats, "reservedSeats can't be more than availableSeats")
+  require(availableSeats >= 0, "availableSeats can' be negative")
+  require(reservedSeats >= 0, "reservedSeats can' be negative")
 }
 
 trait JsonSupport extends DefaultJsonProtocol with SprayJsonSupport {
   implicit val registerScreeningFmt: RootJsonFormat[RegisterScreening] = jsonFormat3(RegisterScreening)
+  implicit val reserveSeatFmt: RootJsonFormat[ReserveSeat] = jsonFormat2(ReserveSeat)
   implicit val screeningFmt: RootJsonFormat[Screening] = jsonFormat5(Screening)
 }
 
 trait Storage {
   def getScreenings: Future[Seq[Screening]]
   def getScreening(imdbId: String, screenId: String): Future[Option[Screening]]
-  def registerScreening(screening: Screening): Future[Screening]
-  def reserveSeat(screening: Screening): Future[Option[Screening]]
+  def registerScreening(screening: Screening): Future[Unit]
+  def updateScreening(screening: Screening): Future[Unit]
 }
 
 class MongoStorage extends Storage {
@@ -77,73 +81,87 @@ class MongoStorage extends Storage {
     col.find(query).first().head().map(toModel)
   }
 
-  override def registerScreening(screening: Screening): Future[Screening] = {
-    col.insertOne(toDoc(screening)).head().map(_ => screening)
+  override def registerScreening(screening: Screening): Future[Unit] = {
+    col.insertOne(toDoc(screening)).head().map(_ => ())
   }
 
-  override def reserveSeat(screening: Screening): Future[Option[Screening]] = {
+  override def updateScreening(screening: Screening): Future[Unit] = {
     val query = and(equal("imdbId", screening.imdbId), equal("screenId", screening.screenId))
     val update = combine(
-      set("availableSeats", screening.availableSeats - 1),
-      set("reservedSeats", screening.reservedSeats + 1))
-    col.findOneAndUpdate(query, update).head().map(toModel)
+      set("availableSeats", screening.availableSeats),
+      set("reservedSeats", screening.reservedSeats))
+    col.updateOne(query, update).head().map(_ => ())
   }
 }
 
 object Reserver {
-  def props(imdbId: String, screenId: String, storage: Storage): Props = Props(new Reserver(imdbId, screenId, storage))
+  def props(storage: Storage): Props = Props(new Reserver(storage))
 }
 
-class Reserver(imdbId: String, screenId: String, storage: Storage) extends Actor with Stash {
+class Reserver(storage: Storage) extends Actor with Stash {
   val log = Logging(context.system, this)
 
-  import context.dispatcher
-
   def receive: Receive = {
-    case msg =>
-      stash()
-      pipe(storage.getScreening(imdbId, screenId)).to(self, sender)
-      context.become(reading)
+    case rs: RegisterScreening =>
+      pipe(storage.getScreening(rs.imdbId, rs.screenId)).to(self, sender)
+      context.become(registering(rs))
+
+    case rs: ReserveSeat =>
+      pipe(storage.getScreening(rs.imdbId, rs.screenId)).to(self, sender)
+      context.become(reserving(rs))
   }
 
   def registering(rs: RegisterScreening): Receive = {
-    case Some(screening: Screening) =>
-      sender ! None
-      context.become(registered(screening))
-      unstashAll()
-    case None =>
-      context.become(unregistered)
-      unstashAll()
-    case f: akka.actor.Status.Failure =>
+    case Some(_) =>
+      sender ! ScreeningAlreadyRegistered
       context.unbecome()
-  }
-
-  def reading: Receive = {
-    case Some(screening: Screening) =>
-      context.become(registered(screening))
       unstashAll()
+
     case None =>
-      context.become(unregistered)
-      unstashAll()
-    case f: akka.actor.Status.Failure =>
-      context.unbecome()
+      val screening = Screening(rs.imdbId, rs.screenId, "NA", rs.availableSeats, 0)
+      pipe(storage.registerScreening(screening).map(_ => screening)).to(self, sender)
 
+    case s: Screening =>
+      sender ! s
+      context.unbecome()
+      unstashAll()
+
+    case f: akka.actor.Status.Failure =>
+      sender ! f
+      context.unbecome()
+      unstashAll()
     case _ => stash()
   }
 
-  def registered(screening: Screening): Receive = {
-    case rs: RegisterScreening => sender ! None
-  }
+  def reserving(rs: ReserveSeat): Receive = {
+    case Some(screening: Screening) =>
+      if (screening.availableSeats > 0) {
+        val updated = screening.copy(
+          availableSeats = screening.availableSeats - 1,
+          reservedSeats = screening.reservedSeats + 1
+        )
+        pipe(storage.updateScreening(updated).map(_ => updated)).to(self, sender)
+      } else {
+        sender ! NoSeatsAvailable
+        context.unbecome()
+        unstashAll()
+      }
 
-  def unregistered: Receive = {
-    case rs: RegisterScreening =>
-      log.info("Reserver.unregistered")
-      log.info(sender.toString())
-      val screening = Screening(rs.imdbId, rs.screenId, "NA", rs.availableSeats, 0)
-      pipe(storage.registerScreening(screening)).to(self, sender)
+    case None =>
+      sender ! ScreeningNotFound
+      context.unbecome()
+      unstashAll()
+
     case s: Screening =>
-      context.become(registered(s))
-      sender ! Some(s)
+      sender ! s
+      context.unbecome()
+      unstashAll()
+
+    case f: akka.actor.Status.Failure =>
+      sender ! f
+      context.unbecome()
+      unstashAll()
+    case _ => stash()
   }
 }
 
@@ -157,14 +175,15 @@ class Manager(storage: Storage) extends Actor {
   private def getReserver(imdbId: String, screenId: String) = {
     val name = s"$imdbId-$screenId"
     context.child(name).getOrElse {
-      context.actorOf(Reserver.props(imdbId, screenId, storage), name)
+      context.actorOf(Reserver.props(storage), name)
     }
   }
 
   def receive: Receive = {
     case rs: RegisterScreening =>
-      log.info("Manager.receive")
-      log.info(sender.toString())
+      log.info(rs.toString)
+      getReserver(rs.imdbId, rs.screenId).forward(rs)
+    case rs: ReserveSeat =>
       getReserver(rs.imdbId, rs.screenId).forward(rs)
   }
 }
@@ -173,11 +192,10 @@ object Boot extends App with JsonSupport {
   implicit val system = ActorSystem("mrs")
   implicit val materializer = ActorMaterializer()
   implicit val executionContext = system.dispatcher
+  implicit val timeout = Timeout(5.seconds)
 
   val storage = new MongoStorage()
   val manager = system.actorOf(Manager.props(storage))
-
-  implicit val timeout = Timeout(5.seconds)
 
   val route =
     path("health") {
@@ -188,14 +206,35 @@ object Boot extends App with JsonSupport {
     path("screenings") {
       post {
         entity(as[RegisterScreening]) { rs =>
-          onComplete(ask(manager, rs).mapTo[Option[Screening]]) {
-            case Success(Some(screening: Screening)) =>
-              complete(screening)
-            case Success(None) =>
+          onComplete(ask(manager, rs)) {
+            case Success(s: Screening) =>
+              complete(s)
+            case Success(ScreeningAlreadyRegistered) =>
               complete(StatusCodes.BadRequest, "screening already registered")
-            case Failure(e) =>
-              println(e.getMessage)
-              complete(StatusCodes.InternalServerError)
+            case Success(akka.actor.Status.Failure(t)) =>
+              complete(StatusCodes.InternalServerError, t.getMessage)
+            case Success(_) =>
+              complete(StatusCodes.InternalServerError, "something unexpected happened")
+            case Failure(t) =>
+              complete(StatusCodes.InternalServerError, t.getMessage)
+          }
+        }
+      } ~
+      put {
+        entity(as[ReserveSeat]) { rs =>
+          onComplete(ask(manager, rs)) {
+            case Success(s: Screening) =>
+              complete(s)
+            case Success(NoSeatsAvailable) =>
+              complete(StatusCodes.BadRequest, "no seats available")
+            case Success(ScreeningNotFound) =>
+              complete(StatusCodes.NotFound, "screening not found")
+            case Success(akka.actor.Status.Failure(t)) =>
+              complete(StatusCodes.InternalServerError, t.getMessage)
+            case Success(_) =>
+              complete(StatusCodes.InternalServerError, "something unexpected happened")
+            case Failure(t) =>
+              complete(StatusCodes.InternalServerError, t.getMessage)
           }
         }
       }
