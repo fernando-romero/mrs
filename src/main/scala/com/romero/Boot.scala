@@ -20,25 +20,34 @@ import scala.concurrent.Future
 import scala.concurrent.duration._
 import scala.util.{Failure, Success, Try}
 
+// Http payloads
+
 case class RegisterScreening(imdbId: String, screenId: String, availableSeats: Int) {
   require(availableSeats > 0, "availableSeats should be more than 0")
 }
-
-case class ReserveSeat(imdbId: String, screenId: String)
-case object ScreeningAlreadyRegistered
-case object NoSeatsAvailable
-case object ScreeningNotFound
 
 case class Screening(imdbId: String, screenId: String, movieTitle: String, availableSeats: Int, reservedSeats: Int) {
   require(availableSeats >= 0, "availableSeats can' be negative")
   require(reservedSeats >= 0, "reservedSeats can' be negative")
 }
 
+case class ReserveSeat(imdbId: String, screenId: String)
+
+// Akka messages
+
+case object ScreeningAlreadyRegistered
+case object NoSeatsAvailable
+case object ScreeningNotFound
+
+// Json
+
 trait JsonSupport extends DefaultJsonProtocol with SprayJsonSupport {
   implicit val registerScreeningFmt: RootJsonFormat[RegisterScreening] = jsonFormat3(RegisterScreening)
   implicit val reserveSeatFmt: RootJsonFormat[ReserveSeat] = jsonFormat2(ReserveSeat)
   implicit val screeningFmt: RootJsonFormat[Screening] = jsonFormat5(Screening)
 }
+
+// Persistence
 
 trait Storage {
   def getScreenings: Future[Seq[Screening]]
@@ -93,6 +102,8 @@ class MongoStorage extends Storage {
     col.updateOne(query, update).head().map(_ => ())
   }
 }
+
+// Actors
 
 object Reserver {
   def props(storage: Storage): Props = Props(new Reserver(storage))
@@ -188,6 +199,8 @@ class Manager(storage: Storage) extends Actor {
   }
 }
 
+// Server
+
 object Boot extends App with JsonSupport {
   implicit val system = ActorSystem("mrs")
   implicit val materializer = ActorMaterializer()
@@ -237,6 +250,24 @@ object Boot extends App with JsonSupport {
               complete(StatusCodes.InternalServerError, t.getMessage)
           }
         }
+      } ~
+      get {
+        onComplete(storage.getScreenings) {
+          case Success(screenings: Seq[Screening]) =>
+            complete(screenings)
+          case Failure(t) =>
+            complete(StatusCodes.InternalServerError, t.getMessage)
+        }
+      }
+    } ~
+    path("movies" / Segment / "screenings" / Segment)  { (imdbId, screenId) =>
+      onComplete(storage.getScreening(imdbId, screenId)) {
+        case Success(Some(s)) =>
+          complete(s)
+        case Success(None) =>
+          complete(StatusCodes.NotFound)
+        case Failure(t) =>
+          complete(StatusCodes.InternalServerError, t.getMessage)
       }
     }
 
