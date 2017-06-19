@@ -64,7 +64,7 @@ Example response:
 
 ### PUT /screenings
 
-Reserves a set for a screening
+Reserves a seat for a screening
 
 | Code                        | Meaning																																				           |
 |-----------------------------|-----------------------------------------------|
