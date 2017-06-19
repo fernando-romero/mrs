@@ -17,7 +17,7 @@ Application will be available at [http://localhost:9000](http://localhost:9000).
 
 ## Endpoints
 
-### /health
+### GET /health
 
 Gets service health.
 
@@ -42,11 +42,13 @@ Responses:
 
 Example request:
 
-`{
+```
+{
  	"imdbId": "tt0111161",
     "availableSeats": 3,
     "screenId": "screen_123456"
- }`
+ }
+```
 
 Example response:
 
