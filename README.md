@@ -44,21 +44,23 @@ Example request:
 
 ```
 {
- 	"imdbId": "tt0111161",
+    "imdbId": "tt0111161",
     "availableSeats": 3,
     "screenId": "screen_123456"
- }
+}
 ```
 
 Example response:
 
-`{
-     "reservedSeats": 0,
-     "screenId": "screen_123456",
-     "imdbId": "tt0111161",
-     "availableSeats": 3,
-     "movieTitle": "NA"
- }`
+```
+{
+    "reservedSeats": 0,
+    "screenId": "screen_123456",
+    "imdbId": "tt0111161",
+    "availableSeats": 3,
+    "movieTitle": "NA"
+}
+```
 
 ### PUT /screenings
 
@@ -74,20 +76,24 @@ Reserves a set for a screening
 
 Example request:
 
-`{
+```
+{
     "imdbId": "tt0111161",
     "screenId": "screen_123456"
- }`
+}
+```
 
 Example response:
 
-`{
-     "reservedSeats": 1,
-     "screenId": "screen_123456",
-     "imdbId": "tt0111161",
-     "availableSeats": 2,
-     "movieTitle": "NA"
- }`
+```
+{
+    "reservedSeats": 1,
+    "screenId": "screen_123456",
+    "imdbId": "tt0111161",
+    "availableSeats": 2,
+    "movieTitle": "NA"
+}
+```
 
 ### GET /screenings
 
@@ -100,22 +106,24 @@ Gets all registered screenings
 
 Example response:
 
-`[
-     {
-         "reservedSeats": 0,
-         "screenId": "screen_123457",
-         "imdbId": "tt0111161",
-         "availableSeats": 3,
-         "movieTitle": "NA"
-     },
-     {
-         "reservedSeats": 3,
-         "screenId": "screen_123456",
-         "imdbId": "tt0111161",
-         "availableSeats": 0,
-         "movieTitle": "NA"
-     }
- ]`
+```
+[
+    {
+        "reservedSeats": 0,
+        "screenId": "screen_123457",
+        "imdbId": "tt0111161",
+        "availableSeats": 3,
+        "movieTitle": "NA"
+    },
+    {
+        "reservedSeats": 3,
+        "screenId": "screen_123456",
+        "imdbId": "tt0111161",
+        "availableSeats": 0,
+        "movieTitle": "NA"
+    }
+ ]
+```
 
  ### GET /movies/:imdbId/screenings/:screenId
 
@@ -129,10 +137,12 @@ Example response:
 
 Example response:
 
-`{
-     "reservedSeats": 1,
-     "screenId": "screen_123456",
-     "imdbId": "tt0111161",
-     "availableSeats": 2,
-     "movieTitle": "NA"
- }`
+```
+{
+    "reservedSeats": 1,
+    "screenId": "screen_123456",
+    "imdbId": "tt0111161",
+    "availableSeats": 2,
+    "movieTitle": "NA"
+}
+```
