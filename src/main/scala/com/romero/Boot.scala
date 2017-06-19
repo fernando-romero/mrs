@@ -1,7 +1,6 @@
 package com.romero
 
 import akka.actor.{Actor, ActorSystem, Props, Stash}
-import akka.event.Logging
 import akka.http.scaladsl.Http
 import akka.http.scaladsl.marshallers.sprayjson.SprayJsonSupport
 import akka.http.scaladsl.model.StatusCodes
@@ -25,15 +24,22 @@ import scala.util.{Failure, Success, Try}
 // Http payloads
 
 case class RegisterScreening(imdbId: String, screenId: String, availableSeats: Int) {
+  require(imdbId.nonEmpty, "imdbId can't be empty")
+  require(screenId.nonEmpty, "imdbId can't be empty")
   require(availableSeats > 0, "availableSeats should be more than 0")
 }
 
-case class Screening(imdbId: String, screenId: String, movieTitle: String, availableSeats: Int, reservedSeats: Int) {
-  require(availableSeats >= 0, "availableSeats can' be negative")
-  require(reservedSeats >= 0, "reservedSeats can' be negative")
+case class ReserveSeat(imdbId: String, screenId: String) {
+  require(imdbId.nonEmpty, "imdbId can't be empty")
+  require(screenId.nonEmpty, "imdbId can't be empty")
 }
 
-case class ReserveSeat(imdbId: String, screenId: String)
+case class Screening(imdbId: String, screenId: String, movieTitle: String, availableSeats: Int, reservedSeats: Int) {
+  require(imdbId.nonEmpty, "imdbId can't be empty")
+  require(screenId.nonEmpty, "imdbId can't be empty")
+  require(availableSeats >= 0, "availableSeats can't be negative")
+  require(reservedSeats >= 0, "reservedSeats can't be negative")
+}
 
 // Akka messages
 
@@ -112,7 +118,6 @@ object Reserver {
 }
 
 class Reserver(storage: Storage) extends Actor with Stash {
-  val log = Logging(context.system, this)
 
   def receive: Receive = {
     case rs: RegisterScreening =>
@@ -143,6 +148,7 @@ class Reserver(storage: Storage) extends Actor with Stash {
       sender ! f
       context.unbecome()
       unstashAll()
+
     case _ => stash()
   }
 
@@ -174,6 +180,7 @@ class Reserver(storage: Storage) extends Actor with Stash {
       sender ! f
       context.unbecome()
       unstashAll()
+
     case _ => stash()
   }
 }
@@ -183,7 +190,6 @@ object Manager {
 }
 
 class Manager(storage: Storage) extends Actor {
-  val log = Logging(context.system, this)
 
   private def getReserver(imdbId: String, screenId: String) = {
     val name = s"$imdbId-$screenId"
@@ -194,7 +200,6 @@ class Manager(storage: Storage) extends Actor {
 
   def receive: Receive = {
     case rs: RegisterScreening =>
-      log.info(rs.toString)
       getReserver(rs.imdbId, rs.screenId).forward(rs)
     case rs: ReserveSeat =>
       getReserver(rs.imdbId, rs.screenId).forward(rs)
