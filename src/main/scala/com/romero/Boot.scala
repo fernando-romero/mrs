@@ -5,10 +5,12 @@ import akka.event.Logging
 import akka.http.scaladsl.Http
 import akka.http.scaladsl.marshallers.sprayjson.SprayJsonSupport
 import akka.http.scaladsl.model.StatusCodes
+import akka.http.scaladsl.model.headers.RawHeader
 import akka.http.scaladsl.server.Directives._
 import akka.pattern.{ask, pipe}
 import akka.stream.ActorMaterializer
 import akka.util.Timeout
+import com.typesafe.config.ConfigFactory
 import org.mongodb.scala.MongoClient
 import org.mongodb.scala.bson._
 import org.mongodb.scala.model.Filters._
@@ -56,8 +58,8 @@ trait Storage {
   def updateScreening(screening: Screening): Future[Unit]
 }
 
-class MongoStorage extends Storage {
-  private val client = MongoClient()
+class MongoStorage(uri: String) extends Storage {
+  private val client = MongoClient(uri)
   private val db = client.getDatabase("mrs")
   private val col = db.getCollection("screenings")
 
@@ -207,7 +209,10 @@ object Boot extends App with JsonSupport {
   implicit val executionContext = system.dispatcher
   implicit val timeout = Timeout(5.seconds)
 
-  val storage = new MongoStorage()
+  val conf = ConfigFactory.load
+
+  val mongoUri = conf.getString("mongoUri")
+  val storage = new MongoStorage(mongoUri)
   val manager = system.actorOf(Manager.props(storage))
 
   val route =
@@ -221,9 +226,11 @@ object Boot extends App with JsonSupport {
         entity(as[RegisterScreening]) { rs =>
           onComplete(ask(manager, rs)) {
             case Success(s: Screening) =>
-              complete(s)
+              respondWithHeader(RawHeader("Location", s"/movies/${s.imdbId}/screenings/${s.screenId}")) {
+                complete(StatusCodes.Created, s)
+              }
             case Success(ScreeningAlreadyRegistered) =>
-              complete(StatusCodes.BadRequest, "screening already registered")
+              complete(StatusCodes.Forbidden, "screening already registered")
             case Success(akka.actor.Status.Failure(t)) =>
               complete(StatusCodes.InternalServerError, t.getMessage)
             case Success(_) =>
@@ -239,7 +246,7 @@ object Boot extends App with JsonSupport {
             case Success(s: Screening) =>
               complete(s)
             case Success(NoSeatsAvailable) =>
-              complete(StatusCodes.BadRequest, "no seats available")
+              complete(StatusCodes.Forbidden, "no seats available")
             case Success(ScreeningNotFound) =>
               complete(StatusCodes.NotFound, "screening not found")
             case Success(akka.actor.Status.Failure(t)) =>
@@ -271,5 +278,7 @@ object Boot extends App with JsonSupport {
       }
     }
 
-  Http().bindAndHandle(route, "0.0.0.0", 9000)
+  val interface = conf.getString("interface")
+  val port = conf.getInt("port")
+  Http().bindAndHandle(route, interface, port)
 }
