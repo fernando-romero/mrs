@@ -64,7 +64,7 @@ Example response:
     "screenId": "screen_123456",
     "imdbId": "tt0111161",
     "availableSeats": 3,
-    "movieTitle": "NA"
+    "movieTitle": "The Great Placeholder"
 }
 ```
 
@@ -97,7 +97,7 @@ Example response:
     "screenId": "screen_123456",
     "imdbId": "tt0111161",
     "availableSeats": 2,
-    "movieTitle": "NA"
+    "movieTitle": "The Great Placeholder"
 }
 ```
 
@@ -119,14 +119,14 @@ Example response:
         "screenId": "screen_123457",
         "imdbId": "tt0111161",
         "availableSeats": 3,
-        "movieTitle": "NA"
+        "movieTitle": "The Foo"
     },
     {
         "reservedSeats": 3,
         "screenId": "screen_123456",
         "imdbId": "tt0111161",
         "availableSeats": 0,
-        "movieTitle": "NA"
+        "movieTitle": "The Great Placeholder"
     }
  ]
 ```
@@ -149,6 +149,6 @@ Example response:
     "screenId": "screen_123456",
     "imdbId": "tt0111161",
     "availableSeats": 2,
-    "movieTitle": "NA"
+    "movieTitle": "The Great Placeholder"
 }
 ```
