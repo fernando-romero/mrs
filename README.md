@@ -13,6 +13,12 @@ akka-http example app.
 sbt run
 ```
 
+## Run unit tests
+
+```
+sbt test
+```
+
 Application will be available at [http://localhost:9000](http://localhost:9000). Interface and port are configurable.
 
 ## Endpoints
