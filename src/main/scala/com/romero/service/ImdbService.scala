@@ -13,6 +13,10 @@ trait ImdbService {
 class ImdbServiceImpl extends ImdbService {
   private val browser = JsoupBrowser()
 
+  // DISCLAIMER:
+  // IMDB is not supposed to be scrapped and this is done only
+  // for the purpose of testing the library.
+  // DO NOT use this code for anything else.
   override def getTitle(imdbId: String): Option[String] = {
     for {
       doc <- Try(browser.get(s"http://www.imdb.com/title/$imdbId/")).toOption
